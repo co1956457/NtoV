@@ -18,7 +18,7 @@ C:\Program Files (x86)\posite-c\NiconamaCommentViewer\plugins
 C:\Users\%ユーザー名%\AppData\Roaming\posite-c\NiconamaCommentViewer\NtoV.txt
 
 ４．NtoV.txt に CommentBaton VCI の場所を書いてください。
-C:\Users\%ユーザー名%\AppData\LocalLow\infiniteloopCo,Ltd\VirtualCast\EmbeddedScriptWorkspace\CommentBaton
+C:\Users\%ユーザー名%\AppData\LocalLow\infiniteloop Co,Ltd\VirtualCast\EmbeddedScriptWorkspace\CommentBaton
 
 ５．NCV を立ち上げてください。
 
@@ -52,7 +52,7 @@ C:\Program Files (x86)\posite-c\NiconamaCommentViewer\plugins
 C:\Users\%UserName%\AppData\Roaming\posite-c\NiconamaCommentViewer\NtoV.txt
 
 4. Please write the CommentBaton VCI directory in the NtoV.txt.
-C:\Users\%UserName%\AppData\LocalLow\infiniteloopCo,Ltd\VirtualCast\EmbeddedScriptWorkspace\CommentBaton
+C:\Users\%UserName%\AppData\LocalLow\infiniteloop Co,Ltd\VirtualCast\EmbeddedScriptWorkspace\CommentBaton
 
 5. Please boot NCV.
 
