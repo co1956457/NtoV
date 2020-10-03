@@ -10,6 +10,7 @@
 //               接続時に運営コメントが2回流れないよう対策
 //               特殊文字対策
 // 20201003 v2.2 cytanbをモジュール化 (ver. Commits on Sep 29, 2020)
+// 20201003 v2.3 設定ファイルの改行対応
 //
 using System;
 using System.IO;                    // File, Directory
@@ -340,6 +341,7 @@ namespace NtoV
             {
                 // ディレクトリ確認
                 targetDirectory = File.ReadAllText(readPath);
+                targetDirectory = targetDirectory.Replace("\r", "").Replace("\n", "");　// 設定ファイルの改行を削除
                 string[] strF = targetDirectory.Split(new char[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
 
                 if (strF[strF.Length - 1] == "CommentBaton") // フォルダ名が CommentBaton
