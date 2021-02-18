@@ -12,19 +12,19 @@
 // 20201003 v2.2 cytanbをモジュール化 (ver. Commits on Sep 29, 2020)
 // 20201003 v2.3 設定ファイルの改行対応
 // 20201004 v2.4 local cytanb -> cytanb
-//
+// 20210218 v3.0 転送モード Transfer mode
+
 using System;
 using System.IO;                    // File, Directory
 using System.Collections.Generic;   // List
 using System.Windows.Forms;         // MessageBox
-using System.Text;                  // StringBuilder
 using System.Timers;                // Timer
 using System.Linq;                  // Last
+using System.Text;                  // StringBuilder
 
 using Plugin;
 
 namespace NtoV
-
 {
     public class Class1 : IPlugin
     {
@@ -32,14 +32,35 @@ namespace NtoV
 
         #region IPlugin メンバ
 
-        // プラグインの起動・停止
-        bool ONOFF = true;
+        // Form用
+        private Form1 _form1;
 
         // ファイル存在確認エラー用
         int fileExist;
 
+        // プラグインの状態
+        // transferMode
+        //  0:転送しない　off
+        //  1:部分転送  　スタジオモード（ニコ生：運営のみ　SH：転送なし　他YtTc等：転送）    Studio mode (Ni:Control command, SH:Off, Yt,Tc,etc:On)
+        //  2:全転送 ALL  ルームモード room mode
+        public int transferMode;
+
+        // 起動時にだけファイルから転送モードを読み込む
+        private int initialRead = 0;
+
+        // カレントディレクトリ = プラグインディレクトリ（AppData\Roaming）
+        string curDirectory = Environment.CurrentDirectory;
+        // CommentBaton のディレクトリ用
+        string targetDirectory;
         // CommentBaton のパス
         string targetPath;
+        // 設定ファイル のパス
+        string readPath;
+
+        // ID List
+        string[] idList = new string[] {};
+        // name List
+        string[] nameList = new string[] {};
 
         // 送信コメントをためておく
         List<string> emitCmnt = new List<string>();
@@ -57,7 +78,7 @@ namespace NtoV
         public string Name
         {
             // get { throw new NotImplementedException(); }
-            get { return "NtoV [停止/開始]"; }
+            get { return "NtoV 設定(Settings)"; }
         }
 
         /// <summary>
@@ -66,7 +87,7 @@ namespace NtoV
         public string Version
         {
             // get { throw new NotImplementedException(); }
-            get { return "2.0"; }
+            get { return "3.0"; }
         }
 
         /// <summary>
@@ -75,7 +96,7 @@ namespace NtoV
         public string Description
         {
             // get { throw new NotImplementedException(); }
-            get { return "CommentBaton VCI に運営コメを送る。"; }
+            get { return "NCVからVCへコメント転送"; }
         }
 
         /// <summary>
@@ -109,23 +130,28 @@ namespace NtoV
         /// </summary>
         public void AutoRun()
         {
-            // プラグイン起動（念のため明示）
-            ONOFF = true;
-
             // ファイルの存在確認
             fileExist = fileExistError();
 
+
             if (fileExist == 0) // 問題なし
             {
-                // main.lua 初期化
-                File.WriteAllText(targetPath, "");
+                readXML();
+                initialRead = 1;
 
-                // タイマーの設定
-                timer.Elapsed += new ElapsedEventHandler(OnElapsed_TimersTimer);
-                timer.Interval = 8000;
+                if (transferMode > 0) // 前回の設定:コメント転送ON
+                {
+                    // main.lua 初期化
+                    File.WriteAllText(targetPath, "");
 
-                // タイマー開始
-                timer.Start();
+                    // タイマーの設定
+                    // コメントがないときに一時停止する方法は保留
+                    timer.Elapsed += new ElapsedEventHandler(OnElapsed_TimersTimer);
+                    timer.Interval = 7000;
+
+                    // タイマー開始
+                    timer.Start();
+                }
             }
             else // 問題あり
             {
@@ -140,49 +166,102 @@ namespace NtoV
 
             // 放送切断イベントハンドラ追加
             _host.BroadcastDisConnected += new BroadcastDisConnectedEventHandler(_host_BroadcastDisConnected);
+
+            // 終了時イベントハンドラ追加
+            _host.MainForm.FormClosing += MainForm_FormClosing;
         }
 
         /// <summary>
-        /// プラグイン→ NtoV を選んだ時
+        /// プラグイン→ NtoV 設定(Settings) を選んだ時
         /// </summary>
         public void Run()
         {
+            //フォームの生成
+            _form1 = new Form1(this);
+            _form1.Text = "NtoV 設定(Settings)";
+            _form1.Show();
+            _form1.FormClosed += new FormClosedEventHandler(_form1_FormClosed);
+        }
+
+        /// <summary>
+        /// 閉じるボタン☒を押した時
+        /// </summary>
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
             // ファイルの存在確認
             fileExist = fileExistError();
-
+        
             if (fileExist == 0) // 問題なし
             {
-                // 稼働中なら停止　停止中なら開始
-                if (ONOFF)
-                {
-                    // プラグイン停止
-                    ONOFF = false;
-                    // タイマー停止
-                    timer.Stop();
-                    // コメント受信時のイベントハンドラ削除
-                    _host.ReceivedComment -= _host_ReceivedComment;
-                    // メッセージ表示
-                    MessageBox.Show("停止しました。\n\nStopped", Name);
-                    // main.lua 初期化
-                    File.WriteAllText(targetPath, "");
-                }
-                else
-                {
-                    // プラグイン開始
-                    ONOFF = true;
-                    // タイマー開始
-                    timer.Start();
-                    // コメント受信時のイベントハンドラ追加
-                    _host.ReceivedComment += _host_ReceivedComment;
-                    // メッセージ表示
-                    MessageBox.Show("開始しました。\n\nStarted", Name);
-                    // main.lua 初期化
-                    File.WriteAllText(targetPath, "");
-                }
+                // main.lua 初期化
+                File.WriteAllText(targetPath, "");
+                // NtoV.txtに設定情報 transferMode を保存
+                File.WriteAllText(readPath, targetDirectory + Environment.NewLine + transferMode);
             }
             else // 問題あり
             {
-                showFileExistError(fileExist);
+                // do nothing
+            }
+        }
+
+        /// <summary>
+        /// コメントを受信したら書き出すまでためておく
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        void _host_ReceivedComment(object sender, ReceivedCommentEventArgs e)
+        {
+            if(transferMode > 0) // 稼働中
+            {
+                // 受信したコメント数を取り出す
+                int count = e.CommentDataList.Count;
+                if (count == 0)
+                {
+                    return;
+                }
+                // 最新のコメントデータを取り出す
+                NicoLibrary.NicoLiveData.LiveCommentData commentData = e.CommentDataList[count - 1];
+
+                // コメント文字列を取り出す
+                //commentData.Name は 空
+                //string name = commentData.Name;　←/これで名前が取得できない
+                //IDから取得する
+                string comment = commentData.Comment;
+                string userID = commentData.UserId;                
+
+                if (transferMode == 0) // 転送しない
+                { }
+                else if (transferMode == 1) // スタジオ ニコ生運営コメのみ転送　一般コメ転送しない
+                {
+                    // 運営コメント判定
+                    if (((commentData.PremiumBits & NicoLibrary.NicoLiveData.PremiumFlags.ServerComment) == NicoLibrary.NicoLiveData.PremiumFlags.ServerComment))
+                    {
+                        comment = editComment(comment);
+                        // 追加
+                        buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + "（運営）" + "\', commentSource = \'" + "NCV" + "\'})");
+                    }
+                }
+                else // 全転送 (transferMode ==2)
+                {
+                    // 運営コメント判定
+                    if (((commentData.PremiumBits & NicoLibrary.NicoLiveData.PremiumFlags.ServerComment) == NicoLibrary.NicoLiveData.PremiumFlags.ServerComment))
+                    {
+                        // 運営コメント編集
+                        comment = editComment(comment);
+                        // 追加 運営の commentSource はNCV：CommentBatonを利用した既存VCIに影響が出るためこのまま。
+                        buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + "（運営）" + "\', commentSource = \'" + "NCV" + "\'})");
+                    }
+                    else // 一般コメント
+                    {
+                        // 追加
+                        string name = nameFromXML(userID);
+                        buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + name + "\', commentSource = \'" + "Nicolive" + "\'})");
+                    }
+                }
+            }
+            else
+            {
+                // do nothing
             }
         }
 
@@ -191,8 +270,7 @@ namespace NtoV
         /// </summary>
         void _host_BroadcastConnected(object sender, EventArgs e)
         {
-            // プラグイン稼働中
-            if (ONOFF)
+            if (transferMode > 0) // 稼働中
             {
                 // ファイルの存在確認
                 fileExist = fileExistError();
@@ -220,8 +298,7 @@ namespace NtoV
         /// </summary>
         void _host_BroadcastDisConnected(object sender, EventArgs e)
         {
-            // プラグイン稼働中
-            if (ONOFF)
+            if (transferMode > 0) // 稼働中
             {
                 // ファイルの存在確認
                 fileExist = fileExistError();
@@ -237,41 +314,6 @@ namespace NtoV
                 }
             }
             else // プラグイン停止中
-            {
-                // do nothing
-            }
-        }
-
-        /// <summary>
-        /// コメント受信時に呼ばれる
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        void _host_ReceivedComment(object sender, Plugin.ReceivedCommentEventArgs e)
-        {
-            if (ONOFF) // 稼働中
-            {
-                // 受信したコメント数を取り出す
-                int count = e.CommentDataList.Count;
-                if (count == 0)
-                {
-                    return;
-                }
-                // 最新のコメントデータを取り出す
-                NicoLibrary.NicoLiveData.LiveCommentData commentData = e.CommentDataList[count - 1];
-
-                // コメント文字列を取り出す
-                string comment = commentData.Comment;
-
-                // 運営コメントを編集する
-                if (((commentData.PremiumBits & NicoLibrary.NicoLiveData.PremiumFlags.ServerComment) == NicoLibrary.NicoLiveData.PremiumFlags.ServerComment))
-                {
-                    comment = editComment(comment);
-                    // 追加
-                    buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + "（運営）" + "\', commentSource = \'" + "NCV" + "\'})");
-                }
-            }
-            else
             {
                 // do nothing
             }
@@ -330,18 +372,43 @@ namespace NtoV
         /// </summary>
         int fileExistError()
         {
-            // ファイルの存在確認
+            // 値を返す用
             int returnInt;
-            string curDirectory = System.Environment.CurrentDirectory;
-            string readPath = curDirectory + "\\NtoV.txt";
-            string targetDirectory;
+            // 設定ファイル名
+            readPath = curDirectory + "\\NtoV.txt";
+            // main.lua
             string targetName;
             targetName = "\\main.lua";
 
+            // ファイルの存在確認
             if (File.Exists(readPath)) // 設定ファイルあり
             {
+                // 行ごとのに、テキストファイルの中身をすべて読み込む
+                string[] lines = File.ReadAllLines(readPath);
+
+                // 最後に終了コード999を追記 転送モード初設定判定用
+                string[] settingLines = new string[lines.Length + 1];
+                Array.Copy(lines, settingLines, lines.Length);
+                settingLines[lines.Length] = "999";
+
+                if (initialRead == 0) // 起動時のみファイルから転送モード読み込み
+                {
+                    // transferMode
+                    //  0:転送しない　off
+                    //  1:部分転送  　スタジオモード（ニコ生：運営のみ　SH：転送なし　他YtTc等：転送）    Studio mode (Ni:Control command, SH:Off, Yt,Tc,etc:On)
+                    //  2:全転送 ALL  ルームモード room mode
+                    //
+                    if (settingLines[1] == "0" || settingLines[1] == "1" || settingLines[1] == "2")
+                    {
+                        transferMode = int.Parse(settingLines[1]);
+                    }
+                    else
+                    {
+                        transferMode = 1; // initial setting
+                    }
+                }
                 // ディレクトリ確認
-                targetDirectory = File.ReadAllText(readPath);
+                targetDirectory = lines[0];
                 targetDirectory = targetDirectory.Replace("\r", "").Replace("\n", "");　// 設定ファイルの改行を削除
                 string[] strF = targetDirectory.Split(new char[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -383,7 +450,7 @@ namespace NtoV
             if (errorNumber == 1)
             {
                 // プラグイン停止
-                ONOFF = false;
+                transferMode = 0;
                 // タイマー停止
                 timer.Stop();
                 MessageBox.Show("プラグインを停止しました。\nThis plugin was stopped\n\n設定ファイルがありません。\nThere is no setting file.\n\n1. C:\\Users\\%ユーザー名%\\AppData\\Roaming\\posite-c\\NiconamaCommentViewer\\NtoV.txt を作成してください。\n   Please create the text file.\n\n2. NtoV.txt に CommentBaton VCI の場所 C:\\Users\\%ユーザー名%\\AppData\\LocalLow\\infiniteloop Co,Ltd\\VirtualCast\\EmbeddedScriptWorkspace\\CommentBaton を書いてください。\n   Please write the CommentBaton VCI directory in the text file.\n\n3. NCVを立ち上げなおしてください。\n   Please reboot NCV.", "NtoV エラー error");
@@ -391,7 +458,7 @@ namespace NtoV
             else if (errorNumber == 2)
             {
                 // プラグイン停止
-                ONOFF = false;
+                transferMode = 0;
                 // タイマー停止
                 timer.Stop();
                 MessageBox.Show("プラグインを停止しました。\nThis plugin was stopped\n\n指定ディレクトリが CommentBaton ではありません。\nThe directory is not CommentBaton.\n\n1. NtoV.txt の内容（ CommentBaton VCI の場所 C:\\Users\\%ユーザー名%\\AppData\\LocalLow\\infiniteloop Co,Ltd\\VirtualCast\\EmbeddedScriptWorkspace\\CommentBaton ）を確認してください。\n   Please check the CommentBaton directory in the NtoV.txt.\n\n2. NCVを立ち上げなおしてください。\n   Please reboot NCV.", "NtoV エラー error");
@@ -399,16 +466,145 @@ namespace NtoV
             else if (errorNumber == 3)
             {
                 // プラグイン停止
-                ONOFF = false;
+                transferMode = 0;
                 // タイマー停止
                 timer.Stop();
                 MessageBox.Show("プラグインを停止しました。\nThis plugin was stopped\n\n指定ディレクトリがありません。\nThe directory does not Exist.\n\n1. NtoV.txt の内容（ CommentBaton VCI の場所 C:\\Users\\%ユーザー名%\\AppData\\LocalLow\\infiniteloop Co,Ltd\\VirtualCast\\EmbeddedScriptWorkspace\\CommentBaton ）と実在を確認してください。\n   Please check the CommentBaton directory in the NtoV.txt and existence.\n\n2. NCVを立ち上げなおしてください。\n   Please reboot NCV.", "NtoV エラー error");
             }
         }
 
+        //フォームが閉じられた時のイベントハンドラ
+        void _form1_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            int old_transferMode = transferMode;
+            transferMode = _form1.tMode;
+
+            if (old_transferMode > 0 && transferMode == 0)
+            {
+                // タイマー停止
+                timer.Stop();
+                // main.lua 初期化
+                File.WriteAllText(targetPath, "");
+            }
+            else if (old_transferMode == 0 && transferMode > 0)
+            {
+                // タイマー開始
+                timer.Start();
+                // main.lua 初期化
+                File.WriteAllText(targetPath, "");
+            }
+
+            if (old_transferMode != transferMode)
+            {
+                // 設定ファイルにパスとモードを保存
+                File.WriteAllText(readPath, targetDirectory + Environment.NewLine + transferMode);
+            }
+
+            //フォームが閉じられた時のイベントハンドラ削除
+            _form1.FormClosed -= _form1_FormClosed;
+            _form1 = null;
+        }
+
+
+        /// <summary>
+        /// NCVに保存されているIDと名前を読み込む
+        /// </summary>
+        void readXML()
+        {
+            // ユーザー名をファイルから取得
+            string xmlPath = curDirectory + "\\UserSetting.xml";
+
+            if (File.Exists(xmlPath) == false) // なかったら
+            {
+                // do nothing
+            }
+            else
+            {
+                // XML処理ができなかったので一般的なテキスト処理
+                // 行ごとに、テキストファイルの中身をすべて読み込む
+                // null回避かつサイズ同期
+                // nameList = lines; にすると勝手にidListもnameListになる
+                string[] lines = File.ReadAllLines(xmlPath);
+                string[] nLines = File.ReadAllLines(xmlPath);
+                idList = lines;
+                nameList = nLines;
+
+                // 3行目から最後-1行目まで IDと名前を取り出す
+                // lines.Length - 2 にすると最後のID取得がうまくいかない
+                for (int i = 2; i < lines.Length - 1; i++)
+                {
+                    string idLine = lines[i];
+                    string nameLine = lines[i];
+                    
+                    int cut11 = idLine.LastIndexOf("\">");
+                    string id1 = idLine.Remove(0, cut11 + 2);
+                    int cut12 = id1.LastIndexOf("<");
+                    string id2 = id1.Substring(0, cut12);
+                    idList[i] = id2;
+
+                    int cut21 = nameLine.IndexOf(" name=\"");
+                    string name1 = nameLine.Remove(0, cut21 + 7);
+                    int cut22 = name1.IndexOf("\" time=\"");
+                    string name2 = name1.Substring(0, cut22);
+                    nameList[i] = name2;
+                }
+            }
+        }
+
+        /// <summary>
+        /// comment.UserID に対応する名前があれば返す
+        /// </summary>
+        /// <param name="userID"></param>
+        /// <returns></returns>
+        string nameFromXML(string userID)
+        {
+            string uID = userID;
+            string userName;
+            if (userID.All(char.IsDigit))
+            {
+                if ((idList != null) && (nameList != null))
+                {
+                    int num = Array.IndexOf(idList, uID);
+                    if (num > -1) // IDがあれば
+                    {
+                        userName = nameList[num];
+                    }
+                    else // IDがない
+                    {
+                        // 一度だけリスト更新（名前の自動取得でファイルが更新されている可能性あり）
+                        readXML();
+                        if ((idList != null) && (nameList != null)) // 念のため
+                        {
+                            int num2 = Array.IndexOf(idList, uID);
+                            if (num2 > -1)
+                            {
+                                userName = nameList[num2];
+                            }
+                            else // 名前の自動取得をしていない
+                            {
+                                userName = "（生ID）";
+                            }
+                        }
+                        else// XMLからリストが作成できていない
+                        {
+                            userName = "（生ID）";
+                        }
+                    }
+                }
+                else // XMLからリストが作成できていない
+                {
+                    userName = "（生ID）";
+                }
+            }
+            else // IDに数字以外のものが含まれる
+            {
+                userName = ""; // 184
+            }
+            return userName;
+        }
+
         /// <summary>
         /// 運営コメントを編集
-        /// 参考 https://github.com/chinng-inta
         /// </summary>
         string editComment(string message)
         {
