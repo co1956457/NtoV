@@ -3,6 +3,12 @@
 運営コメントを CommentBaton VCI に送ります。
 これにより、縦書きコメビュに運営コメントが表示されるようになります。
 
+また、転送モード２を選ぶと、ルームでもニコ生の一般コメントが縦書きコメビュで見られるようになります。
+
+転送モード１：運営コメントのみ転送
+転送モード２：全コメント転送
+
+
 NCV(Niconama Comment Viewer)はこちらから入手できます。
 https://www.posite-c.com/application/ncv/
 CommentBaton と縦書きコメビュはこちらから入手できます。
@@ -28,7 +34,6 @@ C:\Users\%ユーザー名%\AppData\LocalLow\infiniteloop Co,Ltd\VirtualCast\Embe
 ※既知の問題
 　CommentBaton を先に出現させた時に、前回最後のコメントが main.lua に残っていたらそれが流れます。
 　コメントが大量にあるときなど、 NCV を接続した時に過去の運営コメが流れることがあります。
-　読み込みのタイミングの問題ではないかと思います。
 
 ライセンス： MIT
 
@@ -36,6 +41,12 @@ C:\Users\%ユーザー名%\AppData\LocalLow\infiniteloop Co,Ltd\VirtualCast\Embe
 This is NCV plugin.
 This plugin sends the control comments to CommentBaton VCI.
 Then, Vertical Comment Viewer VCI would be able to get the control comments.
+
+If you choose the transfer mode 2, you can read all Nicolive comments in the "Room".
+
+Transfer mode 1: only special comments
+Transfer mode 2: all comments
+
 
 You can get NCV(Niconama Comment Viewer) from here.
 https://www.posite-c.com/application/ncv/
@@ -62,7 +73,6 @@ C:\Users\%UserName%\AppData\LocalLow\infiniteloop Co,Ltd\VirtualCast\EmbeddedScr
 ! Known Issues
  When CommentBaton VCI was appeared, the VCI sends the last comment if it was in main.lua.
  If there were a lot of comments, the VCI might sends a past comment.
- I'm not sure, however, I think that it depends on the reading timing.
 
 License: MIT
 </pre>
