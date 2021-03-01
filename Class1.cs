@@ -13,6 +13,7 @@
 // 20201003 v2.3 設定ファイルの改行対応
 // 20201004 v2.4 local cytanb -> cytanb
 // 20210218 v3.0 転送モード Transfer mode
+// 20210301 v3.1 7000 -> 8000ms
 
 using System;
 using System.IO;                    // File, Directory
@@ -147,7 +148,7 @@ namespace NtoV
                     // タイマーの設定
                     // コメントがないときに一時停止する方法は保留
                     timer.Elapsed += new ElapsedEventHandler(OnElapsed_TimersTimer);
-                    timer.Interval = 7000;
+                    timer.Interval = 8000;
 
                     // タイマー開始
                     timer.Start();
