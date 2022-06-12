@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows.Forms;
 using System.Drawing;
 
@@ -60,7 +60,7 @@ namespace NtoV
             radio1.Name = "1";
             radio1.Width = 350;
             radio1.Height = 35;
-            radio1.Text = "1: 部分転送 Part   [運営コメントのみ Only special comments]";
+            radio1.Text = "1: スタジオ STUDIO [運営コメント Special comments]";
             radio1.Top = 50;
             radio1.Left = 25;
             if (tMode == 1)
@@ -77,7 +77,7 @@ namespace NtoV
             radio2.Name = "2";
             radio2.Width = 350;
             radio2.Height = 35;
-            radio2.Text = "2: 全転送 ALL";
+            radio2.Text = "2: ルーム ROOM [全転送 All comments]";
             radio2.Top = 85;
             radio2.Left = 25;
             if (tMode == 2)
