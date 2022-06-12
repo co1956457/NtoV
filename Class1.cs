@@ -1,6 +1,7 @@
 // http://c-loft.com/blog/?p=719     この記事を参考に作成                              webの公開情報
 // https://github.com/chinng-inta    運営コメントの条件分岐等参考にした                MIT License
 // https://github.com/oocytanb       CommentBaton から縦書きコメビュにメッセージを送る MIT License
+//                                   /cytanb-vci-comment-plugin 内 cytanb-comment-source v0.9.2 の送信部分をモジュール実装
 //
 // SPDX-License-Identifier: MIT
 // 20200718 v1.0 Taki co1956457
@@ -14,6 +15,7 @@
 // 20201004 v2.4 local cytanb -> cytanb
 // 20210218 v3.0 転送モード Transfer mode
 // 20210301 v3.1 7000 -> 8000ms
+// 20220605 v4.0 1フレーム1コメント方式, 広告コメント修正, ギフトコメント修正
 
 using System;
 using System.IO;                    // File, Directory
@@ -41,9 +43,9 @@ namespace NtoV
 
         // プラグインの状態
         // transferMode
-        //  0:転送しない　off
-        //  1:部分転送  　スタジオモード（ニコ生：運営のみ　SH：転送なし　他YtTc等：転送）    Studio mode (Ni:Control command, SH:Off, Yt,Tc,etc:On)
-        //  2:全転送 ALL  ルームモード room mode
+        //  0: 転送しない OFF
+        //  1: スタジオ STUDIO [運営コメント Special comments]
+        //  2: ルーム ROOM [全転送 All comments]
         public int transferMode;
 
         // 起動時にだけファイルから転送モードを読み込む
@@ -88,7 +90,7 @@ namespace NtoV
         public string Version
         {
             // get { throw new NotImplementedException(); }
-            get { return "3.0"; }
+            get { return "4.0"; }
         }
 
         /// <summary>
@@ -97,7 +99,7 @@ namespace NtoV
         public string Description
         {
             // get { throw new NotImplementedException(); }
-            get { return "NCVからVCへコメント転送"; }
+            get { return "NCVからVirtualCastへコメント転送"; }
         }
 
         /// <summary>
@@ -239,7 +241,7 @@ namespace NtoV
                     {
                         comment = editComment(comment);
                         // 追加
-                        buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + "（運営）" + "\', commentSource = \'" + "NCV" + "\'})");
+                        buffEmit.Add("        {value = \'" + comment + "\', sender = {name = \'" + "（運営）" + "\', type = \'comment\', commentSource = \'" + "NCV" + "\',},},");
                     }
                 }
                 else // 全転送 (transferMode ==2)
@@ -250,13 +252,13 @@ namespace NtoV
                         // 運営コメント編集
                         comment = editComment(comment);
                         // 追加 運営の commentSource はNCV：CommentBatonを利用した既存VCIに影響が出るためこのまま。
-                        buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + "（運営）" + "\', commentSource = \'" + "NCV" + "\'})");
+                        buffEmit.Add("        {value = \'" + comment + "\', sender = {name = \'" + "（運営）" + "\', type = \'comment\', commentSource = \'" + "NCV" + "\',},},");
                     }
                     else // 一般コメント
                     {
                         // 追加
                         string name = nameFromXML(userID);
-                        buffEmit.Add("    cytanb.EmitCommentMessage(\'" + comment + "\', {name = \'" + name + "\', commentSource = \'" + "Nicolive" + "\'})");
+                        buffEmit.Add("        {value = \'" + comment + "\', sender = {name = \'" + name + "\', type = \'comment\', commentSource = \'" + "Nicolive" + "\',},},");
                     }
                 }
             }
@@ -337,10 +339,9 @@ namespace NtoV
                 string s2;
                 string s3;
 
-                // cytanb.EmitCommentMessage の実行は IsMine の中に書くこと。そうしないとゲストの人数分実行されてしまう。
-                // cytanb ver. Commits on Sep 29, 2020
+                // cytanb = cytanb or require('cytanb')(_ENV)は IsMine の中(ゲストの負荷軽減)。cytanb.EmitCommentMessage は update の中(1フレーム1コメント)。
                 // \ -> \\      ' -> \'     " -> \"
-                s1 = "cytanb = cytanb or require(\'cytanb\')(_ENV)\n\nif vci.assets.IsMine then\n";
+                s1 = "local num = 1\nlocal commentList = {}\n\nif vci.assets.IsMine then\n    cytanb = cytanb or require('cytanb')(_ENV)\n    commentList = {\n";
 
                 // 接続時は最新データーを１件
                 // それ以外はたまっていたもの全部
@@ -358,7 +359,7 @@ namespace NtoV
                 // 念のため最後に \n を入れておく
                 // タイミングによっては Visual Studio Code で警告が出る場合がある？　よくわからない
                 // なくても正常に動作はする
-                s3 = "\nend\n";
+                s3 = "\n    }\nend\n\nfunction update()\n    if num <= #commentList then\n        local entry = commentList[num]\n        cytanb.EmitCommentMessage(entry.value, entry.sender)\n        num = num + 1\n    end\nend\n";
 
                 File.WriteAllText(targetPath, s1 + s2 + s3);
             }
@@ -395,9 +396,9 @@ namespace NtoV
                 if (initialRead == 0) // 起動時のみファイルから転送モード読み込み
                 {
                     // transferMode
-                    //  0:転送しない　off
-                    //  1:部分転送  　スタジオモード（ニコ生：運営のみ　SH：転送なし　他YtTc等：転送）    Studio mode (Ni:Control command, SH:Off, Yt,Tc,etc:On)
-                    //  2:全転送 ALL  ルームモード room mode
+                    //  0: 転送しない OFF
+                    //  1: スタジオ STUDIO [運営コメント Special comments]
+                    //  2: ルーム ROOM [全転送 All comments]
                     //
                     if (settingLines[1] == "0" || settingLines[1] == "1" || settingLines[1] == "2")
                     {
@@ -454,7 +455,7 @@ namespace NtoV
                 transferMode = 0;
                 // タイマー停止
                 timer.Stop();
-                MessageBox.Show("プラグインを停止しました。\nThis plugin was stopped\n\n設定ファイルがありません。\nThere is no setting file.\n\n1. C:\\Users\\%ユーザー名%\\AppData\\Roaming\\posite-c\\NiconamaCommentViewer\\NtoV.txt を作成してください。\n   Please create the text file.\n\n2. NtoV.txt に CommentBaton VCI の場所 C:\\Users\\%ユーザー名%\\AppData\\LocalLow\\infiniteloop Co,Ltd\\VirtualCast\\EmbeddedScriptWorkspace\\CommentBaton を書いてください。\n   Please write the CommentBaton VCI directory in the text file.\n\n3. NCVを立ち上げなおしてください。\n   Please reboot NCV.", "NtoV エラー error");
+                MessageBox.Show("プラグインを停止しました。\nThis plugin was stopped\n\n設定ファイルがありません。\nThere is no setting file.\n\n1. C:\\Users\\%ユーザー名%\\AppData\\Roaming\\posite-c\\NiconamaCommentViewer\\NtoV.txt を作成してください(※NCVのインストール先を変えた人は自分の環境に合わせてください)。\n   Please create the text file (the directory depends on your install directory).\n\n2. NtoV.txt に CommentBaton VCI の場所 C:\\Users\\%ユーザー名%\\AppData\\LocalLow\\infiniteloop Co,Ltd\\VirtualCast\\EmbeddedScriptWorkspace\\CommentBaton を書いてください。\n   Please write the CommentBaton VCI directory in the text file.\n\n3. NCVを立ち上げなおしてください。\n   Please reboot NCV.", "NtoV エラー error");
             }
             else if (errorNumber == 2)
             {
@@ -615,71 +616,29 @@ namespace NtoV
             switch (str[0])
             {
                 case "/nicoad":
-                    //
+                    // ※フォーマットが変わった
+                    // 旧 「\"」 前5削除 後5削除
                     // /nicoad {\"totalAdPoint\":12200,\"message\":\"Takiさんが600ptニコニ広告しました「おすすめの放送です」\",\"version\":\"1\"}
-                    // 
-                    // 名前に半角スペースが入っている人がいる
-                    // ニコニコのニックネームには「"」「'」が使えない（他サイトは不明）
-                    // ニコニコのニックネームを Ta /,\ki(SPSLCY)  に設定 (SPace SLash Comma Yenmark)
-                    // /nicoad Json内では       Ta /,\\ki(SPSLCY) \ が \\ に（広告メッセージ中の \ も \\）
-                    // /gift 内はそのまま       Ta /,\ki(SPSLCY)
                     //
-                    // /nicoad {\"totalAdPoint\":12200,\"message\":\"Ta /,\\ki(SPSLCY)さんが600ptニコニ広告しました「\\ えんまーく」\",\"version\":\"1\"}
+                    // 新 「"」で Split 後、文字列の最後の「\」削除
+                    // /nicoad {\"version\":\"1\",\"totalAdPoint\":12200,\"message\":\"【広告貢献1位】Takiさんが100ptニコニ広告しました\"}
+                    // /nicoad {\"version\":\"1\",\"totalAdPoint\":12200,\"message\":\"Takiさんが1000ptニコニ広告しました「おすすめの放送です」\"}
                     //
-                    // str[1]には名前の半角スペースの前までしか入っていない
-                    // 
-                    // strJson = msg.Remove(0, 8); // 先頭8文字「/nicoad 」削除
-                    // strJson = strJson.Replace("\\", "");
-                    // 
-                    // dynamic obj = DynamicJson.Parse(@"" + strJson);
-                    // if (obj.IsDefined("message") == true)
-                    // {
-                    //    msg = obj.message;
-                    // }
-                    // else
-                    // {
-                    //    // mseesageLabel.Text = obj;
-                    // }
-                    //
-                    // DynamicJson の扱いがわからなかった(参照とか)ので
-                    // 先頭から5回目の「\"」 + 1 まで削除
-                    // 後ろから5回目の「\"」 - 1 から最後まで削除
-                    // 名前に半角スペースがあっても大丈夫
-                    // 「"」「'」は全角に変換
-                    // 
-                    // msg.Substring(fmNum, toNum); なぜか落ちるから全部 remove で処理する
-                    // 
-                    // /nicoad {\"totalAdPoint\":12200,\"message\":\"Takiさんが600ptニコニ広告しました「おすすめの放送です」\",\"version\":\"1\"}
-                    // /nicoad {\"totalAdPoint\":12200,\"message\":\"Ta /,\\ki(SPSLCY)さんが600ptニコニ広告しました「\\ えんまーく」\",\"version\":\"1\"}
-                    // 
-                    int fmAdMsg = msg.IndexOf("\"");
-                    fmAdMsg = msg.IndexOf("\"", fmAdMsg + 1);
-                    fmAdMsg = msg.IndexOf("\"", fmAdMsg + 1);
-                    fmAdMsg = msg.IndexOf("\"", fmAdMsg + 1);
-                    fmAdMsg = msg.IndexOf("\"", fmAdMsg + 1);
-                    fmAdMsg = fmAdMsg + 1;
-                    string adMessage = msg.Remove(0, fmAdMsg);
-                    // 結果
-                    // adMessage = Takiさんが600ptニコニ広告しました「おすすめの放送です」\",\"version\":\"1\"}
-                    // adMessage = Ta /,\\ki(SPSLCY)さんが600ptニコニ広告しました「\\ えんまーく」\",\"version\":\"1\"}
 
-                    int toAdMsg = adMessage.LastIndexOf("\"");
-                    toAdMsg = adMessage.LastIndexOf("\"", toAdMsg - 1);
-                    toAdMsg = adMessage.LastIndexOf("\"", toAdMsg - 1);
-                    toAdMsg = adMessage.LastIndexOf("\"", toAdMsg - 1);
-                    toAdMsg = adMessage.LastIndexOf("\"", toAdMsg - 1);
-                    toAdMsg = toAdMsg - 1;
-                    adMessage = adMessage.Remove(toAdMsg);
-                    // 結果
-                    // adMessage = Takiさんが600ptニコニ広告しました「おすすめの放送です」
-                    // adMessage = Ta /,\\ki(SPSLCY)さんが600ptニコニ広告しました「\\ えんまーく」
+                    // 「"」でメッセージを分割 (ニコニコのニックネームには「"」「'」が使えない)
+                    string[] nicoadCmnt = msg.Split(new char[] { '\"' }, StringSplitOptions.RemoveEmptyEntries);
+                    
+                    // 広告メッセージ
+                    string adMessage = nicoadCmnt[9];
+                    
+                    // 最後の文字「\」を削除
+                    adMessage = adMessage.TrimEnd('\\');
 
+                    // 特殊文字変換
                     adMessage = adMessage.Replace("\n", "").Replace("\r", "");
                     adMessage = adMessage.Replace("\\\"", "”").Replace("\\\'", "’").Replace("\\", "＼");
                     adMessage = adMessage.Replace("$", "＄").Replace("/", "／").Replace(",", "，");
-                    // 結果
-                    // adMessage = Takiさんが600ptニコニ広告しました「おすすめの放送です」
-                    // adMessage = Ta ／，＼ki(SPSLCY)さんが300ptニコニ広告しました「＼　えんまーく」
+
                     msg = adMessage;
                     break;
                 case "/info":
@@ -693,6 +652,8 @@ namespace NtoV
                     // /info 6 観測地域:ニコ県沿岸北部　震度:5弱　発生時間:2099年 7月 5日 07時 42分
                     // /info 7 震源地:ニコ県沖　震度:5弱　マグニチュード:5.8　発生時間:2099年 7月 5日 07時 42分
                     // /info 8 第1位にランクインしました
+                    // /info 10 ニコニ広告枠から1人が来場しました
+                    // /info 10 「雑談」が好きな1人が来場しました
                     // 
                     // 「"」なし
                     // /info 6,7 中に半角スペースあり
@@ -700,8 +661,15 @@ namespace NtoV
                     msg = msg.Remove(0, 8); // 先頭10文字「/info * 」削除
                     break;
                 case "/gift":
-                    // 
                     // 2****7 はニコニコの ID
+                    // 通常ギフト、イベントギフト
+                    // /gift seed 2****7 \"Taki\" 50 \"\" \"ひまわりの種\"
+                    // /gift giftevent_niku 2****7 \"Taki\" 90 \"\" \"肉\"
+                    // /gift giftevent_yasai 2****7 \"Taki\" 20 \"\" \"野菜\"
+                    // /gift giftevent_mashumaro 2****7 \"Taki\" 10 \"\" \"焼きマシュマロ\"
+                    // /gift giftevent_mashumaro NULL \"名無し\" 10 \"\" \"焼きマシュマロ\"
+                    //
+                    // Vギフトランキングあり
                     // /gift vcast_ocha 2****7 \"Taki\" 300 \"\" \"お茶\" 1
                     // 【ギフト貢献1位】Takiさんがギフト「お茶（300pt）」を贈りました
                     // 
@@ -719,127 +687,67 @@ namespace NtoV
                     // 名前に半角スペースが入っていても大丈夫
                     // 「"」「'」は全角に変換
                     // 
-                    // string user = msg.Substring(fmNum, toNum); 落ちるから全部 remove で処理する
+                    // string user = msg.Substring(fmNum, toNum); 落ちる
                     // 
                     // msg = /gift vcast_ocha 2****7 \"Taki\" 300 \"\" \"お茶\" 1
                     // msg = /gift vcast_ocha 2****7 \"Ta /,\ki(SPSLCY)\" 0 \"\" \"貝がら（6種ランダム）\" 1
                     // msg = /gift vcast_free_shell NULL \"名無し\" 0 \"\" \"貝がら（6種ランダム）\"
                     // 
-                    int fmUser = msg.IndexOf("\"");
-                    fmUser = fmUser + 1;
 
-                    string user = msg.Remove(0, fmUser);
-                    // 結果
-                    // user = Taki\" 300 \"\" \"お茶\" 1
-                    // user = Ta /,\ki(SPSLCY)\" 0 \"\" \"貝がら（6種ランダム）\" 1
-                    // user = 名無し\" 0 \"\" \"貝がら（6種ランダム）\"
+                    // 「"」でメッセージを分割 (ニコニコのニックネームには「"」「'」が使えない)
+                    string[] giftCmnt = msg.Split(new char[] { '\"' }, StringSplitOptions.RemoveEmptyEntries);
 
-                    int toUser = user.LastIndexOf("\"");
-                    toUser = user.LastIndexOf("\"", toUser - 1);
-                    toUser = user.LastIndexOf("\"", toUser - 1);
-                    toUser = user.LastIndexOf("\"", toUser - 1);
-                    toUser = user.LastIndexOf("\"", toUser - 1);
-                    toUser = toUser - 1;
+                    // ユーザー名
+                    string user = giftCmnt[1];
 
-                    user = user.Remove(toUser);
-                    // 結果
-                    // user = Taki
-                    // user = Ta /,\ki(SPSLCY)
-                    // user = 名無し
+                    // 最後の文字「\」を削除
+                    user = user.TrimEnd('\\');
 
+                    // 特殊文字変換
                     user = user.Replace("\n", "").Replace("\r", "");
                     user = user.Replace("\\\"", "”").Replace("\\\'", "’").Replace("\\", "＼");
                     user = user.Replace("$", "＄").Replace("/", "／").Replace(",", "，");
-                    // 結果
-                    // user = Taki
-                    // user = Ta ／，＼ki(SPSLCY)
-                    // user = 名無し
 
-                    // pt
-                    // msg = /gift vcast_ocha 2****7 \"Taki\" 300 \"\" \"お茶\" 1
-                    // msg = /gift vcast_ocha 2****7 "Ta /,\ki(SPSLCY)\" 0 \"\" \"貝がら（6種ランダム）\" 1
-                    // msg = /gift vcast_free_shell NULL \"名無し\" 0 \"\" \"貝がら（6種ランダム）\"
-                    // 
-                    // toUserNum + 2 からだけど、後ろから5回目の「\"」 + 2 にする
-                    // 後ろから2回目の「 "」 - 1 までだけど、後ろから4回目の「\"」 - 2 にする
-                    // 「\"」で統一
-                    //
-                    int fmPt = msg.LastIndexOf("\"");
-                    fmPt = msg.LastIndexOf("\"", fmPt - 1);
-                    fmPt = msg.LastIndexOf("\"", fmPt - 1);
-                    fmPt = msg.LastIndexOf("\"", fmPt - 1);
-                    fmPt = msg.LastIndexOf("\"", fmPt - 1);
-                    fmPt = fmPt + 2;
-                    string pt = msg.Remove(0, fmPt);
-                    // 結果
-                    // pt = 300 \"\" \"お茶\" 1
-                    // pt = 0 \"\" \"貝がら（6種ランダム）\" 1
-                    // pt = 0 \"\" \"貝がら（6種ランダム）\"
 
-                    int toPt = pt.LastIndexOf("\"");
-                    toPt = pt.LastIndexOf("\"", toPt - 1);
-                    toPt = pt.LastIndexOf("\"", toPt - 1);
-                    toPt = pt.LastIndexOf("\"", toPt - 1);
-                    toPt = toPt - 2;
+                    // ポイント
+                    string pt = giftCmnt[2];
 
-                    pt = pt.Remove(toPt);
-                    // 結果
-                    // pt = 300
-                    // pt = 0
-                    // pt = 0
+                    // 最後の文字「\」を削除後、前後の空白を削除
+                    pt = pt.TrimEnd('\\');
+                    pt = pt.Trim();
 
-                    // giftName
-                    // msg = /gift vcast_ocha 2****7 \"Taki\" 300 \"\" \"お茶\" 1
-                    // msg = /gift vcast_ocha 2****7 "Ta /,\ki(SPSLCY)\" 0 \"\" \"貝がら（6種ランダム）\" 1
-                    // msg = /gift vcast_free_shell NULL \"名無し\" 0 \"\" \"貝がら（6種ランダム）\"
-                    // 
-                    // 後ろから2回目の「\"」 + 1 から
-                    // 後ろから1回目の「\"」 - 1 まで
-                    // 
-                    int fmGiftName = msg.LastIndexOf("\"");
-                    fmGiftName = msg.LastIndexOf("\"", fmGiftName - 1);
-                    fmGiftName = fmGiftName + 1;
 
-                    string giftName = msg.Remove(0, fmGiftName);
-                    // 結果
-                    // giftName = お茶\" 1
-                    // giftName = 貝がら（6種ランダム）\" 1
-                    // giftName = 貝がら（6種ランダム）\"
+                    // ギフト名
+                    string giftName = giftCmnt[5];
 
-                    int toGiftName = giftName.LastIndexOf("\"");
-                    toGiftName = toGiftName - 1;
+                    // 最後の文字「\」を削除
+                    giftName = giftName.TrimEnd('\\');
 
-                    giftName = giftName.Remove(toGiftName);
-                    // 結果
-                    // giftName = お茶
-                    // giftName = 貝がら（6種ランダム）
-                    // giftName = 貝がら（6種ランダム）
+                    // 特殊文字変換
+                    giftName = giftName.Replace("\n", "").Replace("\r", "");
+                    giftName = giftName.Replace("\\\"", "”").Replace("\\\'", "’").Replace("\\", "＼");
+                    giftName = giftName.Replace("$", "＄").Replace("/", "／").Replace(",", "，");
 
-                    // rank 桁数不明
-                    // 「名無し」の時は空
-                    // msg = /gift vcast_ocha 2****7 \"Taki\" 300 \"\" \"お茶\" 1
-                    // msg = /gift vcast_ocha 2****7 "Ta /,\ki(SPSLCY)\" 0 \"\" \"貝がら（6種ランダム）\" 1
-                    // msg = /gift vcast_free_shell NULL \"名無し\" 0 \"\" \"貝がら（6種ランダム）\"
-                    // 
-                    // ID が NULL ではなかったら rank 処理
-                    // 先頭から、後ろから1回目の「\"」+ 2 まで削除
-                    // 
-                    if (str[2] == "NULL")
+
+                    // ランキング(Vギフト)
+                    string rank = "";
+                    if (giftCmnt.Length == 7)
                     {
-                        msg = user + "さんがギフト「" + giftName + "（" + pt + "pt）」を贈りました";
-                        // 結果
-                        // 名無しさんがギフト「貝がら（6種ランダム）（0pt）」を贈りました
+                        // 位取得後、前後の空白を削除
+                        rank = giftCmnt[6];
+                        rank = rank.Trim();
+                    }
+ 
+                    if (rank == "")
+                    {
+                        // Takiさんがギフト「お茶（300pt）」を贈りました
+                        // 名無しさんがギフト「お茶（300pt）」を贈りました
+                        msg =  user + "さんがギフト「" + giftName + "（" + pt + "pt）」を贈りました";
                     }
                     else
                     {
-                        int fmRank = msg.LastIndexOf("\"");
-                        fmRank = fmRank + 2;
-                        string rank = msg.Remove(0, fmRank);
-
+                        //【ギフト貢献1位】Takiさんがギフト「お茶（300pt）」を贈りました
                         msg = "【ギフト貢献" + rank + "位】" + user + "さんがギフト「" + giftName + "（" + pt + "pt）」を贈りました";
-                        // 結果
-                        // 【ギフト貢献1位】Takiさんがギフト「お茶（300pt）」を贈りました
-                        // 【ギフト貢献1位】Ta ／，＼ki(SPSLCY)さんがギフト「貝がら（6種ランダム）（0pt）」を贈りました
                     }
                     // 各要素処理しているから msg.Replace() は不要
                     break;
